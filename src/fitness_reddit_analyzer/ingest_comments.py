@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fitness_reddit_analyzer.arctic import ArcticShiftClient
-from fitness_reddit_analyzer.config import RAW_DIR, SUBREDDIT, checkpoint_path
+from fitness_reddit_analyzer.config import RAW_DIR, SUBREDDIT, WINDOW_END_UTC, WINDOW_START_UTC, checkpoint_path
 from fitness_reddit_analyzer.db import connect_db
 from fitness_reddit_analyzer.ingest_posts import clean_reddit_text, normalize_author, upsert_author
 from tqdm import tqdm
@@ -40,12 +40,21 @@ def run() -> None:
 
 
 def load_post_window() -> dict:
+    # Prefer explicit env vars so the caller controls which era to ingest.
+    if WINDOW_START_UTC and WINDOW_END_UTC:
+        return {
+            "window_start_utc": int(WINDOW_START_UTC),
+            "window_end_utc": int(WINDOW_END_UTC),
+        }
+    # Backward compat: single-era mode, pick the most recent window.
     with connect_db() as connection:
         row = connection.execute(
             """
             SELECT window_start_utc, window_end_utc
             FROM subreddit_meta
-            WHERE subreddit = ?
+            WHERE LOWER(subreddit) = LOWER(?)
+            ORDER BY window_start_utc DESC
+            LIMIT 1
             """,
             (SUBREDDIT,),
         ).fetchone()
@@ -54,14 +63,18 @@ def load_post_window() -> dict:
     return dict(row)
 
 
-def fetch_target_posts() -> list[sqlite3.Row]:
+def fetch_target_posts(post_window: dict) -> list[sqlite3.Row]:
     with connect_db() as connection:
         rows = connection.execute(
             """
             SELECT post_id, created_utc
             FROM posts
+            WHERE LOWER(subreddit) = LOWER(?)
+              AND created_utc >= ?
+              AND created_utc < ?
             ORDER BY created_utc ASC, post_id ASC
-            """
+            """,
+            (SUBREDDIT, post_window["window_start_utc"], post_window["window_end_utc"]),
         ).fetchall()
     return rows
 
@@ -72,7 +85,7 @@ def ingest_comments(
     checkpoint: dict | None,
     checkpoint_file: Path,
 ) -> int:
-    posts = fetch_target_posts()
+    posts = fetch_target_posts(post_window)
     post_ids = {row["post_id"] for row in posts}
     raw_dump_path = RAW_DIR / f"{SUBREDDIT}_comments_{post_window['window_start_utc']}_{post_window['window_end_utc']}.jsonl"
     window_end_utc = int(post_window["window_end_utc"])
@@ -148,7 +161,7 @@ def ingest_comments(
         status="completed",
     )
     save_checkpoint(checkpoint_file, final_payload)
-    update_comment_count(total_inserted)
+    update_comment_count(total_inserted, post_window)
     return total_inserted
 
 
@@ -347,13 +360,30 @@ def load_checkpoint(path: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def update_comment_count(total_comments: int) -> None:
+def update_comment_count(total_comments: int, post_window: dict) -> None:
     with connect_db() as connection:
         connection.execute(
             """
             UPDATE subreddit_meta
             SET comment_count = ?
             WHERE subreddit = ?
+              AND window_start_utc = ?
             """,
-            (total_comments, SUBREDDIT),
+            (total_comments, SUBREDDIT, post_window["window_start_utc"]),
+        )
+
+
+def count_comments_in_window(post_window: dict) -> int:
+    with connect_db() as connection:
+        return int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM comments
+                WHERE LOWER(subreddit) = LOWER(?)
+                  AND created_utc >= ?
+                  AND created_utc < ?
+                """,
+                (SUBREDDIT, post_window["window_start_utc"], post_window["window_end_utc"]),
+            ).fetchone()[0]
         )

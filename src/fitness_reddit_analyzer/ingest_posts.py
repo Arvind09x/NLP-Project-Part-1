@@ -409,14 +409,14 @@ def load_checkpoint(path: Path) -> dict | None:
 
 def update_subreddit_meta(selection: WindowSelection, total_processed: int) -> None:
     now_utc = int(datetime.now(tz=UTC).timestamp())
+    post_count = count_posts_in_window(selection.start_utc, selection.end_utc)
     with connect_db() as connection:
         connection.execute(
             """
             INSERT INTO subreddit_meta (
                 subreddit, window_start_utc, window_end_utc, selected_at_utc, post_count, notes
             ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(subreddit) DO UPDATE SET
-                window_start_utc = excluded.window_start_utc,
+            ON CONFLICT(subreddit, window_start_utc) DO UPDATE SET
                 window_end_utc = excluded.window_end_utc,
                 selected_at_utc = excluded.selected_at_utc,
                 post_count = excluded.post_count,
@@ -427,13 +427,30 @@ def update_subreddit_meta(selection: WindowSelection, total_processed: int) -> N
                 selection.start_utc,
                 selection.end_utc,
                 now_utc,
-                total_processed,
+                post_count,
                 (
                     f"window_discovery={selection.discovery_mode}; "
                     f"span_months={selection.span_months}; "
-                    f"estimated_posts={selection.post_count}"
+                    f"estimated_posts={selection.post_count}; "
+                    f"processed_posts={total_processed}"
                 ),
             ),
+        )
+
+
+def count_posts_in_window(start_utc: int, end_utc: int) -> int:
+    with connect_db() as connection:
+        return int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM posts
+                WHERE LOWER(subreddit) = LOWER(?)
+                  AND created_utc >= ?
+                  AND created_utc < ?
+                """,
+                (SUBREDDIT, start_utc, end_utc),
+            ).fetchone()[0]
         )
 
 

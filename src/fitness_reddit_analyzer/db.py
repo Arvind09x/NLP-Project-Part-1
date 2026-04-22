@@ -10,13 +10,14 @@ from fitness_reddit_analyzer.config import DB_PATH, ensure_directories
 SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS subreddit_meta (
-        subreddit TEXT PRIMARY KEY,
-        window_start_utc INTEGER,
+        subreddit TEXT NOT NULL,
+        window_start_utc INTEGER NOT NULL,
         window_end_utc INTEGER,
         selected_at_utc INTEGER,
         post_count INTEGER DEFAULT 0,
         comment_count INTEGER DEFAULT 0,
-        notes TEXT
+        notes TEXT,
+        PRIMARY KEY (subreddit, window_start_utc)
     )
     """,
     """

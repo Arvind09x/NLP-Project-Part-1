@@ -21,6 +21,7 @@ from fitness_reddit_analyzer.config import (
     MIN_TOPIC_COUNT,
     SUBREDDIT,
     TARGET_TOPIC_COUNT,
+    TOPIC_MODEL_MIN_COMMENT_SHARE,
     TOPIC_MODEL_RANDOM_SEED,
     TOPIC_MODEL_TOTAL_DOC_TARGET,
     TOPIC_REPRESENTATIVE_DOCS,
@@ -28,6 +29,20 @@ from fitness_reddit_analyzer.config import (
     checkpoint_path,
 )
 from fitness_reddit_analyzer.db import connect_db
+
+EMPTY_TOPIC_CORPUS_COLUMNS = [
+    "document_id",
+    "source_type",
+    "source_id",
+    "post_id",
+    "root_post_id",
+    "title",
+    "clean_text",
+    "created_utc",
+    "score",
+]
+
+COMMENT_ERA_FLOOR = 200
 
 
 TOPIC_STOPWORDS = sorted(
@@ -111,9 +126,34 @@ def ensure_prepare_features_complete() -> None:
 
 
 def load_topic_corpus() -> pd.DataFrame:
-    posts = load_modeled_posts()
-    comment_cap = max(TOPIC_MODEL_TOTAL_DOC_TARGET - len(posts), 0)
-    comments = load_modeled_comments(comment_cap)
+    all_posts = load_modeled_posts()
+    min_comment_slots = min(
+        TOPIC_MODEL_TOTAL_DOC_TARGET,
+        max(int(TOPIC_MODEL_TOTAL_DOC_TARGET * TOPIC_MODEL_MIN_COMMENT_SHARE), 0),
+    )
+    max_post_slots = max(TOPIC_MODEL_TOTAL_DOC_TARGET - min_comment_slots, 0)
+    if len(all_posts) > max_post_slots:
+        posts = all_posts.sample(n=max_post_slots, random_state=TOPIC_MODEL_RANDOM_SEED)
+    else:
+        posts = all_posts
+
+    comment_budget = max(TOPIC_MODEL_TOTAL_DOC_TARGET - len(posts), 0)
+    era_windows = load_era_windows()
+    if len(era_windows) <= 1:
+        comments = load_modeled_comments(comment_budget)
+    else:
+        eligible_comments = count_eligible_comments_per_era(era_windows)
+        comment_caps = allocate_comment_caps(
+            eligible_comments,
+            comment_budget,
+            minimum_floor=COMMENT_ERA_FLOOR,
+        )
+        comment_frames = [
+            load_modeled_comments_for_era(start_utc, end_utc, cap)
+            for (start_utc, end_utc), cap in comment_caps.items()
+            if cap > 0
+        ]
+        comments = pd.concat(comment_frames, ignore_index=True) if comment_frames else empty_topic_corpus_frame()
     documents = pd.concat([posts, comments], ignore_index=True)
     if documents.empty:
         return documents
@@ -153,23 +193,139 @@ def load_modeled_posts() -> pd.DataFrame:
 
 
 def load_modeled_comments(comment_cap: int) -> pd.DataFrame:
-    if comment_cap <= 0:
-        return pd.DataFrame(
-            columns=[
-                "document_id",
-                "source_type",
-                "source_id",
-                "post_id",
-                "root_post_id",
-                "title",
-                "clean_text",
-                "created_utc",
-                "score",
-            ]
-        )
+    return load_modeled_comments_for_era(start_utc=None, end_utc=None, era_cap=comment_cap)
+
+
+def load_era_windows() -> list[tuple[int, int]]:
+    with connect_db() as connection:
+        rows = connection.execute(
+            """
+            SELECT window_start_utc, window_end_utc
+            FROM subreddit_meta
+            WHERE LOWER(subreddit) = LOWER(?)
+            ORDER BY window_start_utc ASC
+            """,
+            (SUBREDDIT,),
+        ).fetchall()
+    return [(int(row["window_start_utc"]), int(row["window_end_utc"])) for row in rows]
+
+
+def count_eligible_comments_per_era(era_windows: list[tuple[int, int]]) -> dict[tuple[int, int], int]:
+    counts: dict[tuple[int, int], int] = {}
+    with connect_db() as connection:
+        for start_utc, end_utc in era_windows:
+            counts[(start_utc, end_utc)] = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM documents d
+                    JOIN comments c ON c.comment_id = d.source_id
+                    WHERE d.source_type = 'comment'
+                      AND d.include_in_modeling = 1
+                      AND LOWER(d.subreddit) = LOWER(?)
+                      AND d.parent_id LIKE 't3_%'
+                      AND d.created_utc >= ?
+                      AND d.created_utc < ?
+                    """,
+                    (SUBREDDIT, start_utc, end_utc),
+                ).fetchone()[0]
+            )
+    return counts
+
+
+def allocate_comment_caps(
+    eligible_comments: dict[tuple[int, int], int],
+    comment_budget: int,
+    *,
+    minimum_floor: int,
+) -> dict[tuple[int, int], int]:
+    caps = {window: 0 for window in eligible_comments}
+    active_windows = [window for window, eligible in eligible_comments.items() if eligible > 0]
+    if comment_budget <= 0 or not active_windows:
+        return caps
+
+    desired_floors = {
+        window: min(eligible_comments[window], minimum_floor)
+        for window in active_windows
+    }
+    floor_budget = min(comment_budget, sum(desired_floors.values()))
+    floor_allocations = proportional_allocation(desired_floors, floor_budget)
+    for window, allocation in floor_allocations.items():
+        caps[window] += allocation
+
+    remaining_budget = comment_budget - sum(caps.values())
+    remaining_capacity = {
+        window: eligible_comments[window] - caps[window]
+        for window in active_windows
+        if eligible_comments[window] - caps[window] > 0
+    }
+    if remaining_budget > 0 and remaining_capacity:
+        extra_allocations = proportional_allocation(remaining_capacity, remaining_budget)
+        for window, allocation in extra_allocations.items():
+            caps[window] += allocation
+    return caps
+
+
+def proportional_allocation(
+    capacities: dict[tuple[int, int], int],
+    budget: int,
+) -> dict[tuple[int, int], int]:
+    allocations = {window: 0 for window in capacities}
+    active = [(window, capacity) for window, capacity in capacities.items() if capacity > 0]
+    if budget <= 0 or not active:
+        return allocations
+
+    total_capacity = sum(capacity for _, capacity in active)
+    if total_capacity <= budget:
+        return {window: capacity for window, capacity in capacities.items()}
+
+    remainders: list[tuple[float, int, tuple[int, int]]] = []
+    used = 0
+    for index, (window, capacity) in enumerate(active):
+        raw_share = (budget * capacity) / total_capacity
+        base = min(int(raw_share), capacity)
+        allocations[window] = base
+        used += base
+        remainders.append((raw_share - base, index, window))
+
+    remaining = budget - used
+    for _, _, window in sorted(remainders, key=lambda item: (-item[0], item[1])):
+        if remaining <= 0:
+            break
+        if allocations[window] >= capacities[window]:
+            continue
+        allocations[window] += 1
+        remaining -= 1
+
+    if remaining > 0:
+        for window, capacity in active:
+            while remaining > 0 and allocations[window] < capacity:
+                allocations[window] += 1
+                remaining -= 1
+            if remaining <= 0:
+                break
+    return allocations
+
+
+def load_modeled_comments_for_era(
+    start_utc: int | None,
+    end_utc: int | None,
+    era_cap: int,
+) -> pd.DataFrame:
+    if era_cap <= 0:
+        return empty_topic_corpus_frame()
+    time_filter_sql = ""
+    params: list[object] = [SUBREDDIT]
+    if start_utc is not None and end_utc is not None:
+        time_filter_sql = """
+                  AND d.created_utc >= ?
+                  AND d.created_utc < ?
+        """
+        params.extend([start_utc, end_utc])
+    params.extend([TOP_LEVEL_COMMENTS_PER_POST, era_cap])
     with connect_db() as connection:
         frame = pd.read_sql_query(
-            """
+            f"""
             WITH ranked_comments AS (
                 SELECT
                     d.document_id,
@@ -193,6 +349,7 @@ def load_modeled_comments(comment_cap: int) -> pd.DataFrame:
                   AND d.include_in_modeling = 1
                   AND LOWER(d.subreddit) = LOWER(?)
                   AND d.parent_id LIKE 't3_%'
+                  {time_filter_sql}
             ),
             capped_comments AS (
                 SELECT
@@ -215,9 +372,13 @@ def load_modeled_comments(comment_cap: int) -> pd.DataFrame:
             ORDER BY created_utc ASC, document_id ASC
             """,
             connection,
-            params=(SUBREDDIT, TOP_LEVEL_COMMENTS_PER_POST, comment_cap),
+            params=params,
         )
     return frame
+
+
+def empty_topic_corpus_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=EMPTY_TOPIC_CORPUS_COLUMNS)
 
 
 def fit_topic_model(documents: pd.DataFrame) -> tuple[BERTopic, list[int], np.ndarray]:

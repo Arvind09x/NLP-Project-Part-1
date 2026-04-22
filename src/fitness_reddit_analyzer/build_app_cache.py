@@ -62,7 +62,7 @@ def build_snapshot() -> dict[str, Any]:
     with connect_db() as connection:
         fit_topics_checkpoint = load_checkpoint_payload(connection, "fit_topics", required=True)
         fit_stance_checkpoint = load_checkpoint_payload(connection, "fit_stance", required=False)
-        meta = load_subreddit_meta(connection)
+        meta_rows = load_subreddit_meta(connection)
         monthly_activity = load_monthly_activity(connection)
         topic_rows = load_topic_rows(connection)
         topic_trends = load_topic_trends(connection)
@@ -71,8 +71,16 @@ def build_snapshot() -> dict[str, Any]:
         stance_representatives = hydrate_representative_comments(connection, stance_rows)
         counts = load_corpus_counts(connection)
 
+    window_meta = build_window_meta(meta_rows)
     stance_by_topic = build_stance_lookup(fit_stance_checkpoint, stance_rows, stance_representatives)
-    topic_entries = assemble_topics(topic_rows, topic_trends, representative_docs, stance_by_topic)
+    topic_entries = assemble_topics(
+        topic_rows,
+        topic_trends,
+        representative_docs,
+        stance_by_topic,
+        total_posts=counts["total_posts"],
+        modeled_posts=int(fit_topics_checkpoint["posts_included"]),
+    )
 
     selected_topic_ids = fit_stance_checkpoint.get("selected_topic_ids", []) if fit_stance_checkpoint else []
     topic_share_leader = max(topic_entries, key=lambda topic: topic["document_share"], default=None)
@@ -85,7 +93,8 @@ def build_snapshot() -> dict[str, Any]:
     if topic_share_leader:
         summary_line += (
             f" The largest topic is Topic {topic_share_leader['topic_id']} "
-            f"({topic_share_leader['topic_label']}) at {topic_share_leader['document_share_pct']:.1f}% of modeled documents."
+            f"({topic_share_leader['topic_label']}) at {topic_share_leader['document_share_pct']:.1f}% of modeled documents "
+            f"and {topic_share_leader['corpus_post_share_pct']:.2f}% of all scraped posts."
         )
 
     snapshot = {
@@ -94,7 +103,7 @@ def build_snapshot() -> dict[str, Any]:
             "subreddit": SUBREDDIT,
             "generated_at_utc": now_utc,
             "cache_source": "sqlite_pipeline_snapshot",
-            "selected_window": build_window_meta(meta),
+            "selected_window": window_meta,
         },
         "stats": {
             "total_posts": counts["total_posts"],
@@ -108,7 +117,7 @@ def build_snapshot() -> dict[str, Any]:
             "total_topics": len(topic_entries),
             "major_topic_count": len(selected_topic_ids),
             "stance_topic_count": len(selected_topic_ids),
-            "window_label": build_window_meta(meta)["label"],
+            "window_label": window_meta["label"],
             "corpus_summary": summary_line,
         },
         "overview": {
@@ -120,7 +129,10 @@ def build_snapshot() -> dict[str, Any]:
                     "topic_id": topic["topic_id"],
                     "topic_label": topic["topic_label"],
                     "document_share_pct": topic["document_share_pct"],
+                    "corpus_post_share_pct": topic["corpus_post_share_pct"],
+                    "modeled_post_share_pct": topic["modeled_post_share_pct"],
                     "document_count": topic["document_count"],
+                    "post_documents": topic["post_documents"],
                     "trend_label": topic["trend_label"],
                     "major_topic": topic["major_topic"],
                 }
@@ -134,6 +146,8 @@ def build_snapshot() -> dict[str, Any]:
                 "topic_label": topic["topic_label"],
                 "top_keywords": ", ".join(topic["keyword_terms"][:5]),
                 "document_share_pct": round(topic["document_share_pct"], 1),
+                "modeled_post_share_pct": round(topic["modeled_post_share_pct"], 1),
+                "corpus_post_share_pct": round(topic["corpus_post_share_pct"], 2),
                 "document_count": topic["document_count"],
                 "post_documents": topic["post_documents"],
                 "comment_documents": topic["comment_documents"],
@@ -166,18 +180,19 @@ def load_checkpoint_payload(connection, stage_name: str, *, required: bool) -> d
     return payload
 
 
-def load_subreddit_meta(connection) -> dict[str, Any]:
-    row = connection.execute(
+def load_subreddit_meta(connection) -> list[dict[str, Any]]:
+    rows = connection.execute(
         """
         SELECT subreddit, window_start_utc, window_end_utc, selected_at_utc, post_count, comment_count, notes
         FROM subreddit_meta
         WHERE LOWER(subreddit) = LOWER(?)
+        ORDER BY window_start_utc ASC
         """,
         (SUBREDDIT,),
-    ).fetchone()
-    if row is None:
+    ).fetchall()
+    if not rows:
         raise RuntimeError("No subreddit metadata found. Run ingestion stages before build_app_cache.")
-    return dict(row)
+    return [dict(row) for row in rows]
 
 
 def load_corpus_counts(connection) -> dict[str, int]:
@@ -260,12 +275,17 @@ def load_monthly_activity(connection) -> list[dict[str, Any]]:
     frame = posts.merge(comments, how="outer", on="month_start")
     frame = frame.merge(eligible_docs, how="outer", on="month_start")
     frame = frame.merge(modeled_docs, how="outer", on="month_start")
-    frame = frame.fillna(0).sort_values("month_start", kind="stable")
+    if frame.empty:
+        return []
+    frame["month_start"] = pd.to_datetime(frame["month_start"])
+    full_range = pd.date_range(start=frame["month_start"].min(), end=frame["month_start"].max(), freq="MS")
+    frame = frame.set_index("month_start").reindex(full_range, fill_value=0).reset_index()
+    frame = frame.rename(columns={"index": "month_start"}).fillna(0).sort_values("month_start", kind="stable")
     records: list[dict[str, Any]] = []
     for row in frame.itertuples(index=False):
         records.append(
             {
-                "month_start": row.month_start,
+                "month_start": pd.Timestamp(row.month_start).strftime("%Y-%m-01"),
                 "posts": int(row.posts),
                 "comments": int(row.comments),
                 "eligible_model_documents": int(row.eligible_model_documents),
@@ -520,6 +540,9 @@ def assemble_topics(
     topic_trends: dict[int, list[dict[str, Any]]],
     representative_docs: dict[str, dict[str, Any]],
     stance_by_topic: dict[int, dict[str, Any]],
+    *,
+    total_posts: int,
+    modeled_posts: int,
 ) -> list[dict[str, Any]]:
     topics: list[dict[str, Any]] = []
     for row in topic_rows:
@@ -559,6 +582,8 @@ def assemble_topics(
         document_count = int(row["document_count"] or 0)
         post_documents = int(row["post_documents"] or 0)
         comment_documents = int(row["comment_documents"] or 0)
+        modeled_post_share = (post_documents / modeled_posts) if modeled_posts else 0.0
+        corpus_post_share = (post_documents / total_posts) if total_posts else 0.0
         topics.append(
             {
                 "topic_id": topic_id,
@@ -571,6 +596,10 @@ def assemble_topics(
                 "document_count": document_count,
                 "post_documents": post_documents,
                 "comment_documents": comment_documents,
+                "modeled_post_share": round(modeled_post_share, 4),
+                "modeled_post_share_pct": round(modeled_post_share * 100.0, 1),
+                "corpus_post_share": round(corpus_post_share, 6),
+                "corpus_post_share_pct": round(corpus_post_share * 100.0, 2),
                 "post_share_within_topic": round((post_documents / document_count) * 100.0, 1) if document_count else 0.0,
                 "comment_share_within_topic": round((comment_documents / document_count) * 100.0, 1) if document_count else 0.0,
                 "major_topic": bool(int(row["is_major_topic"] or 0)),
@@ -587,18 +616,39 @@ def assemble_topics(
     return topics
 
 
-def build_window_meta(meta: dict[str, Any]) -> dict[str, Any]:
-    start = datetime.fromtimestamp(int(meta["window_start_utc"]), tz=UTC)
-    end_exclusive = datetime.fromtimestamp(int(meta["window_end_utc"]), tz=UTC)
-    end_inclusive = end_exclusive - timedelta(seconds=1)
-    month_span = (end_inclusive.year - start.year) * 12 + (end_inclusive.month - start.month) + 1
+def build_window_meta(meta_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    eras: list[dict[str, Any]] = []
+    for meta in meta_rows:
+        start = datetime.fromtimestamp(int(meta["window_start_utc"]), tz=UTC)
+        end_exclusive = datetime.fromtimestamp(int(meta["window_end_utc"]), tz=UTC)
+        end_inclusive = end_exclusive - timedelta(seconds=1)
+        eras.append(
+            {
+                "start_utc": int(meta["window_start_utc"]),
+                "end_utc": int(meta["window_end_utc"]),
+                "start_month": start.strftime("%Y-%m"),
+                "end_month": end_inclusive.strftime("%Y-%m"),
+                "label": f"{start.strftime('%b %Y')} to {end_inclusive.strftime('%b %Y')}",
+                "post_count": int(meta.get("post_count", 0) or 0),
+                "comment_count": int(meta.get("comment_count", 0) or 0),
+            }
+        )
+
+    global_start = min(era["start_utc"] for era in eras)
+    global_end = max(era["end_utc"] for era in eras)
+    global_start_dt = datetime.fromtimestamp(global_start, tz=UTC)
+    global_end_inclusive = datetime.fromtimestamp(global_end, tz=UTC) - timedelta(seconds=1)
+    month_span = (global_end_inclusive.year - global_start_dt.year) * 12 + (
+        global_end_inclusive.month - global_start_dt.month
+    ) + 1
     return {
-        "start_utc": int(meta["window_start_utc"]),
-        "end_utc": int(meta["window_end_utc"]),
-        "start_month": start.strftime("%Y-%m"),
-        "end_month": end_inclusive.strftime("%Y-%m"),
-        "label": f"{start.strftime('%b %Y')} to {end_inclusive.strftime('%b %Y')}",
+        "start_utc": global_start,
+        "end_utc": global_end,
+        "start_month": eras[0]["start_month"],
+        "end_month": eras[-1]["end_month"],
+        "label": "  &  ".join(era["label"] for era in eras),
         "month_span": month_span,
+        "eras": eras,
     }
 
 
@@ -646,7 +696,7 @@ def build_methods_payload(
                         f"plus {fit_topics_checkpoint['comments_included']:,} bounded top-level comments."
                     ),
                     "Comments matter in r/fitness because daily questions, megathreads, and advice exchanges often carry the substantive discussion even when the original post is short.",
-                    "Legacy database fields such as share_of_posts and post_share are preserved for Part 2 compatibility, but the app labels them as document-level metrics.",
+                    "The app now shows both hybrid document share and post-based share metrics. Document share reflects the actual modeling space, while post share shows how many post documents from a topic appear relative to the post corpus.",
                 ],
             },
             {

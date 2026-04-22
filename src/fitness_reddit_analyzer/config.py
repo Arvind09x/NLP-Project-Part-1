@@ -6,15 +6,15 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src"
-DATA_DIR = PROJECT_ROOT / "data"
-RAW_DIR = DATA_DIR / "raw"
-INTERIM_DIR = DATA_DIR / "interim"
-PROCESSED_DIR = DATA_DIR / "processed"
+DATA_DIR = Path(os.getenv("FITNESS_DATA_DIR", str(PROJECT_ROOT / "data"))).expanduser()
+RAW_DIR = Path(os.getenv("FITNESS_RAW_DIR", str(DATA_DIR / "raw"))).expanduser()
+INTERIM_DIR = Path(os.getenv("FITNESS_INTERIM_DIR", str(DATA_DIR / "interim"))).expanduser()
+PROCESSED_DIR = Path(os.getenv("FITNESS_PROCESSED_DIR", str(DATA_DIR / "processed"))).expanduser()
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 LOGS_DIR = PROJECT_ROOT / "logs"
-DB_PATH = DATA_DIR / "fitness_part1.sqlite"
-CHECKPOINTS_DIR = INTERIM_DIR / "checkpoints"
-APP_CACHE_PATH = PROCESSED_DIR / "app_cache.json"
+DB_PATH = Path(os.getenv("FITNESS_DB_PATH", str(DATA_DIR / "fitness_part1.sqlite"))).expanduser()
+CHECKPOINTS_DIR = Path(os.getenv("FITNESS_CHECKPOINTS_DIR", str(INTERIM_DIR / "checkpoints"))).expanduser()
+APP_CACHE_PATH = Path(os.getenv("FITNESS_APP_CACHE_PATH", str(PROCESSED_DIR / "app_cache.json"))).expanduser()
 
 APP_TITLE = "r/fitness NLP Explorer"
 SUBREDDIT = "fitness"
@@ -22,6 +22,7 @@ TARGET_TOPIC_COUNT = 8
 MIN_TOPIC_COUNT = 5
 MAX_TOPIC_COUNT = 20
 TOPIC_MODEL_TOTAL_DOC_TARGET = int(os.getenv("TOPIC_MODEL_TOTAL_DOC_TARGET", "15000"))
+TOPIC_MODEL_MIN_COMMENT_SHARE = float(os.getenv("TOPIC_MODEL_MIN_COMMENT_SHARE", "0.30"))
 TOP_LEVEL_COMMENTS_PER_POST = int(os.getenv("TOP_LEVEL_COMMENTS_PER_POST", "3"))
 TOPIC_MODEL_RANDOM_SEED = int(os.getenv("TOPIC_MODEL_RANDOM_SEED", "42"))
 TOPIC_REPRESENTATIVE_DOCS = int(os.getenv("TOPIC_REPRESENTATIVE_DOCS", "5"))
@@ -84,6 +85,7 @@ METHODS_NOTES = [
     "Trending vs persistent labels are computed from monthly topic share over the selected 6+ month window.",
     "Stance detection is unsupervised and can over-separate near-consensus topics; weak or overlapping splits are explicitly flagged.",
     "Feature preparation excludes deleted, removed, bot-authored, and ultra-short texts from modeling while preserving them in corpus-level counts.",
+    "When comparing topic prevalence across eras, absence of a topic in one era may reflect under-sampling rather than genuine topical non-existence.",
 ]
 
 VALIDATED_STANCE_TOPIC_IDS = (1, 2, 6)

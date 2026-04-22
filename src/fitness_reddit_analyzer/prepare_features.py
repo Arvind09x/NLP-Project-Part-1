@@ -160,7 +160,6 @@ def apply_modeling_flags(posts_frame: pd.DataFrame, comments_frame: pd.DataFrame
     posts_frame["include_in_modeling"] = (
         (posts_frame["is_deleted"] == 0)
         & (posts_frame["is_removed"] == 0)
-        & (posts_frame["is_probable_bot"] == 0)
         & (posts_frame["clean_char_count"] >= MIN_POST_TEXT_CHARS)
     ).astype(int)
     posts_frame["post_month"] = pd.to_datetime(posts_frame["created_utc"], unit="s", utc=True).dt.strftime("%Y-%m-01")
