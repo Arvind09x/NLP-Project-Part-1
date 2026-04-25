@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 from pathlib import Path
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.express as px
@@ -16,20 +17,21 @@ st.set_page_config(page_title=APP_TITLE, layout="wide")
 
 PLOTLY_CONFIG = {"displayModeBar": False, "responsive": True}
 HERO_IMAGE_CANDIDATES = (
+    Path("/Users/arvindsrinivass/Downloads/4ea73c75319148e3b2275fcf102e36a3.jpg"),
     Path("/Users/arvindsrinivass/Downloads/2b530d0302e87d964541b0765ec5f52b.jpg"),
     Path("/Users/arvindsrinivass/Desktop/Screenshot 2026-04-22 at 12.52.07 PM.png"),
 )
 PAGES = ("Overview", "Topics", "Topic Detail", "Methods")
 
 CHART_COLORS = {
-    "ink": "#181613",
-    "ink_soft": "#403a35",
-    "muted": "#7a726a",
-    "grid": "#d9d0c4",
-    "line_soft": "#8f877e",
-    "accent": "#b34f35",
-    "accent_soft": "#d8b7a8",
-    "fill": "#ece4db",
+    "ink": "#000000",
+    "ink_soft": "#292421",
+    "muted": "#6b6259",
+    "grid": "#d5c9ba",
+    "line_soft": "#8e847a",
+    "accent": "#260e0e",
+    "accent_soft": "#cfc5b8",
+    "fill": "#ffffff",
 }
 
 
@@ -40,35 +42,39 @@ def get_hero_image_path() -> Path | None:
     return None
 
 
+def get_image_data_uri(path: Path) -> str:
+    import base64
+
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    suffix = path.suffix.lstrip(".").lower() or "jpeg"
+    return f"data:image/{suffix};base64,{encoded}"
+
+
+def page_url(page: str) -> str:
+    return f"?page={quote(page)}"
+
+
 def apply_theme() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
         :root {
-            --bg: #f3eee7;
-            --bg-alt: #efe7dc;
-            --paper: rgba(255, 251, 247, 0.82);
-            --paper-strong: rgba(255, 251, 247, 0.94);
-            --line: #d7cec1;
-            --line-strong: #c2b6a8;
-            --text: #171411;
-            --muted: #6e665f;
-            --muted-soft: #8b8278;
-            --accent: #b34f35;
-            --accent-soft: #edd4ca;
-            --shadow: 0 18px 50px rgba(42, 30, 17, 0.08);
-            --radius-lg: 28px;
-            --radius-md: 18px;
+            --main: #f4e9dc;
+            --paper: #ffffff;
+            --text: #000000;
+            --muted: #5d554f;
+            --muted-soft: #756c63;
+            --line: rgba(31, 31, 31, 0.12);
+            --line-strong: #1f1f1f;
+            --shadow-soft: 0 2px 0 rgba(31, 31, 31, 0.12);
+            --shadow-deep: 0 4px 4px rgba(0, 0, 0, 0.25);
         }
         html, body, [class*="css"]  {
-            font-family: "Manrope", "Segoe UI", sans-serif;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .stApp {
-            background:
-                radial-gradient(circle at top left, rgba(255,255,255,0.55), transparent 22%),
-                radial-gradient(circle at 85% 20%, rgba(179,79,53,0.09), transparent 22%),
-                linear-gradient(180deg, #f5f1ea 0%, var(--bg) 100%);
+            background: var(--main);
             color: var(--text);
         }
         header[data-testid="stHeader"], [data-testid="stSidebar"], #MainMenu {
@@ -78,101 +84,161 @@ def apply_theme() -> None:
             background: transparent;
         }
         .block-container {
-            max-width: 1480px;
-            padding-top: 1.3rem;
-            padding-bottom: 2.8rem;
-            padding-left: 1.6rem;
-            padding-right: 1.6rem;
+            max-width: 1512px;
+            padding-top: 3.75rem;
+            padding-bottom: 4rem;
+            padding-left: clamp(1.4rem, 5.5vw, 5.25rem);
+            padding-right: clamp(1.4rem, 5.5vw, 5.25rem);
         }
         h1, h2, h3, h4 {
-            font-family: "Sora", "Avenir Next", sans-serif;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
             color: var(--text);
-            letter-spacing: -0.03em;
+            letter-spacing: 0;
         }
         p, li, label, div, span {
             color: var(--text);
         }
-        .shell-main {
-            padding-right: 1rem;
+        .home-frame {
+            min-height: 48.5rem;
         }
-        .app-shell-rail {
-            position: sticky;
-            top: 1.2rem;
-            padding: 1rem;
-            border-radius: 24px;
-            background: linear-gradient(180deg, rgba(255,251,247,0.72), rgba(250,244,236,0.9));
+        .home-title-card {
+            width: min(100%, 16.5rem);
+            height: 4rem;
+            margin: 0 auto 3.15rem auto;
+            display: grid;
+            place-items: center;
+            background: var(--paper);
             border: 1px solid var(--line);
-            box-shadow: var(--shadow);
-            backdrop-filter: blur(14px);
+            box-shadow: var(--shadow-soft);
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 2.5rem;
+            line-height: 1;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+        .home-grid {
+            display: grid;
+            grid-template-columns: minmax(18rem, 38.3rem) 25rem;
+            column-gap: clamp(3rem, 11vw, 11.8rem);
+            align-items: start;
+        }
+        .home-nav-stack {
+            display: grid;
+            gap: 0;
+        }
+        .home-nav-stack div[data-testid="stButton"] {
+            margin-bottom: 3.35rem;
+        }
+        .home-nav-stack div[data-testid="stButton"] button {
+            min-height: 5.7rem;
+            font-size: 2rem;
+        }
+        .figma-link {
+            width: 100%;
+            min-height: 3.35rem;
+            display: grid;
+            place-items: center;
+            border: 1px solid var(--line);
+            background: var(--paper);
+            color: var(--text) !important;
+            box-shadow: var(--shadow-soft);
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 1.35rem;
+            line-height: 1;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            text-decoration: none !important;
+            transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+        }
+        .figma-link:hover {
+            transform: translateY(-1px);
+            border-color: var(--line-strong);
+            color: var(--text) !important;
+            box-shadow: var(--shadow-deep);
+        }
+        .figma-link.is-active {
+            border-color: var(--line-strong);
+        }
+        .home-poster {
+            width: min(100%, 25rem);
+            height: 35rem;
+            object-fit: cover;
+            display: block;
+        }
+        .page-topbar {
+            display: grid;
+            grid-template-columns: minmax(13rem, 20rem) minmax(0, 1fr);
+            gap: 1.5rem;
+            align-items: start;
+            margin-bottom: 2.2rem;
+        }
+        .page-title-card {
+            min-height: 4rem;
+            display: grid;
+            place-items: center;
+            background: var(--paper);
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow-soft);
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 2.5rem;
+            line-height: 1;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+        .page-nav-row {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.75rem;
         }
         .rail-kicker, .eyebrow {
             text-transform: uppercase;
-            letter-spacing: 0.14em;
-            font-size: 0.72rem;
-            font-weight: 800;
+            letter-spacing: 0.06em;
+            font-size: 0.78rem;
+            font-weight: 700;
             color: var(--muted-soft);
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .rail-title {
             margin-top: 0.5rem;
-            font-family: "Sora", "Avenir Next", sans-serif;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
             font-size: 1.25rem;
-            line-height: 1.05;
-            font-weight: 700;
+            line-height: 1;
+            font-weight: 400;
+            letter-spacing: 0.03em;
         }
         .rail-copy, .subtle-text, .stCaption {
             color: var(--muted) !important;
             line-height: 1.6;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .hero-shell {
-            position: relative;
-            overflow: hidden;
-            padding: 1.8rem;
+            padding: 1.25rem 0 0.75rem 0;
             margin-bottom: 1.2rem;
-            border-radius: 34px;
-            background:
-                linear-gradient(135deg, rgba(255,252,248,0.96), rgba(245,237,228,0.92)),
-                var(--paper);
             border: 1px solid var(--line);
-            box-shadow: var(--shadow);
-        }
-        .hero-shell::after {
-            content: "";
-            position: absolute;
-            inset: auto -9rem -9rem auto;
-            width: 20rem;
-            height: 20rem;
-            border-radius: 999px;
-            background: radial-gradient(circle, rgba(179,79,53,0.12), transparent 64%);
-            pointer-events: none;
+            border-left: 0;
+            border-right: 0;
         }
         .hero-label {
-            font-size: 0.82rem;
-            color: var(--muted-soft);
             text-transform: uppercase;
-            letter-spacing: 0.16em;
-            font-weight: 800;
+            letter-spacing: 0.06em;
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--muted-soft);
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .hero-title {
-            margin: 0.45rem 0 0.55rem 0;
-            font-size: clamp(2.5rem, 5vw, 5.4rem);
-            line-height: 0.94;
-            font-weight: 800;
-        }
-        .hero-image-replace {
-            margin: 0.7rem 0 0.85rem 0;
-            max-width: min(100%, 34rem);
-        }
-        .hero-image-replace img {
-            display: block;
-            width: 100%;
-            height: auto;
-            filter: contrast(1.02);
+            margin: 0.45rem 0 0.65rem 0;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: clamp(2.35rem, 5vw, 4.25rem);
+            line-height: 0.95;
+            letter-spacing: 0.02em;
         }
         .hero-subtitle {
-            max-width: 42rem;
-            font-size: 1rem;
+            max-width: 54rem;
+            font-size: 0.98rem;
             color: var(--muted);
-            line-height: 1.7;
+            line-height: 1.65;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .hero-meta-row {
             display: flex;
@@ -183,23 +249,21 @@ def apply_theme() -> None:
         .hero-chip {
             border: 1px solid var(--line);
             color: var(--text);
-            background: rgba(255,255,255,0.55);
-            border-radius: 999px;
+            background: var(--paper);
+            border-radius: 0;
             padding: 0.5rem 0.8rem;
             font-size: 0.82rem;
-            font-weight: 700;
-        }
-        .poster-frame {
-            background: #12100e;
-            border-radius: 24px;
-            padding: 0.85rem;
-            box-shadow: 0 18px 44px rgba(20, 16, 12, 0.18);
+            font-weight: 600;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .section-shell {
             padding: 1.2rem 0 0.2rem 0;
         }
         .section-title {
-            font-size: 1.32rem;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 2rem;
+            line-height: 1;
+            letter-spacing: 0.02em;
             margin-bottom: 0.2rem;
         }
         .section-copy {
@@ -207,6 +271,7 @@ def apply_theme() -> None:
             max-width: 48rem;
             line-height: 1.7;
             margin-bottom: 1rem;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .metric-card {
             min-height: 8.1rem;
@@ -216,15 +281,17 @@ def apply_theme() -> None:
         .metric-label {
             color: var(--muted-soft);
             text-transform: uppercase;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.06em;
             font-size: 0.71rem;
-            font-weight: 800;
+            font-weight: 700;
             margin-bottom: 0.7rem;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .metric-value {
-            font-size: 2.15rem;
-            line-height: 0.98;
-            font-weight: 800;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 2.65rem;
+            line-height: 0.95;
+            font-weight: 400;
             color: var(--text);
         }
         .metric-foot {
@@ -232,6 +299,7 @@ def apply_theme() -> None:
             color: var(--muted);
             font-size: 0.88rem;
             line-height: 1.55;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .panel-card, .doc-card, .stance-card, .note-card {
             margin-bottom: 0.9rem;
@@ -239,27 +307,33 @@ def apply_theme() -> None:
             border-top: 1px solid var(--line);
         }
         .panel-title {
-            font-size: 1rem;
-            font-weight: 800;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 1.35rem;
+            line-height: 1;
+            font-weight: 400;
+            letter-spacing: 0.02em;
             margin-bottom: 0.35rem;
         }
         .doc-card {
             border-top-width: 1px;
         }
         .doc-title {
+            font-family: "Inter", "Segoe UI", sans-serif;
             font-size: 1rem;
-            font-weight: 800;
+            font-weight: 700;
             margin: 0.25rem 0 0.4rem 0;
             line-height: 1.35;
         }
         .doc-meta, .caption-line {
             color: var(--muted);
             font-size: 0.84rem;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .doc-body {
             color: var(--text);
             line-height: 1.65;
             font-size: 0.95rem;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .topic-anchor {
             color: var(--text);
@@ -272,29 +346,32 @@ def apply_theme() -> None:
             display: inline-block;
             padding: 0.42rem 0.78rem;
             margin: 0 0.45rem 0.45rem 0;
-            border-radius: 999px;
+            border-radius: 0;
             border: 1px solid var(--line);
-            background: rgba(255,255,255,0.65);
+            background: var(--paper);
             color: var(--text);
             font-size: 0.78rem;
-            font-weight: 700;
+            font-weight: 600;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .topic-summary-line strong {
             color: var(--text);
         }
         .stPlotlyChart, div[data-testid="stDataFrame"] {
-            background: linear-gradient(180deg, rgba(255,251,247,0.68), rgba(248,241,232,0.92));
+            background: var(--paper);
             border: 1px solid var(--line);
-            border-radius: 24px;
+            border-radius: 0;
             padding: 0.9rem 0.9rem 0.25rem 0.9rem;
+            box-shadow: var(--shadow-soft);
         }
         .topic-table-shell {
-            background: linear-gradient(180deg, rgba(255,251,247,0.72), rgba(248,241,232,0.92));
+            background: var(--paper);
             border: 1px solid var(--line);
-            border-radius: 28px;
+            border-radius: 0;
             padding: 1rem 1rem 0.8rem 1rem;
             overflow-x: auto;
             margin-bottom: 1rem;
+            box-shadow: var(--shadow-soft);
         }
         .topic-table {
             width: 100%;
@@ -307,26 +384,28 @@ def apply_theme() -> None:
         .topic-table thead th {
             padding: 0.9rem 0.85rem;
             text-align: left;
-            background: #ece4db;
+            background: #f8f4ee;
             color: var(--text);
-            font-weight: 800;
+            font-weight: 700;
             border-bottom: 1px solid var(--line);
             white-space: nowrap;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .topic-table thead th:first-child {
-            border-top-left-radius: 18px;
+            border-top-left-radius: 0;
         }
         .topic-table thead th:last-child {
-            border-top-right-radius: 18px;
+            border-top-right-radius: 0;
         }
         .topic-table tbody td {
             padding: 0.9rem 0.85rem;
             border-bottom: 1px solid #e6ddd1;
             vertical-align: top;
-            background: rgba(255,255,255,0.55);
+            background: #ffffff;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .topic-table tbody tr:nth-child(even) td {
-            background: rgba(245,238,229,0.8);
+            background: #fbf8f4;
         }
         .topic-table tbody td.num {
             text-align: right;
@@ -346,18 +425,24 @@ def apply_theme() -> None:
         .method-index {
             width: 56px;
             height: 56px;
-            border-radius: 999px;
+            border-radius: 0;
             display: grid;
             place-items: center;
-            background: #161310;
-            color: #fff7f1;
-            font-family: "Sora", "Avenir Next", sans-serif;
-            font-weight: 800;
-            letter-spacing: -0.03em;
+            background: var(--paper);
+            border: 1px solid var(--line-strong);
+            color: var(--text);
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 1.5rem;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            box-shadow: var(--shadow-soft);
         }
         .method-title {
-            font-size: 1.05rem;
-            font-weight: 800;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 1.45rem;
+            line-height: 1;
+            font-weight: 400;
+            letter-spacing: 0.02em;
             margin-bottom: 0.35rem;
         }
         .method-list {
@@ -379,34 +464,38 @@ def apply_theme() -> None:
         }
         div[data-testid="stButton"] button {
             width: 100%;
-            min-height: 2.95rem;
-            border-radius: 16px;
+            min-height: 3.35rem;
+            border-radius: 0;
             border: 1px solid var(--line) !important;
-            background: rgba(255,255,255,0.55);
+            background: var(--paper) !important;
             color: var(--text) !important;
-            font-weight: 800;
-            letter-spacing: -0.01em;
+            font-family: "Bebas Neue", "Arial Narrow", sans-serif;
+            font-size: 1.35rem;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
             transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
-            box-shadow: none;
+            box-shadow: var(--shadow-soft);
         }
         div[data-testid="stButton"] button:hover {
             transform: translateY(-1px);
             border-color: var(--line-strong) !important;
-            background: rgba(255,255,255,0.88);
+            background: var(--paper) !important;
+            box-shadow: var(--shadow-deep);
         }
         div[data-testid="stButton"] button * {
             color: inherit !important;
         }
         div[data-testid="stButton"] button[kind="primary"] {
-            background: #181613 !important;
-            color: #fff7f1 !important;
-            border-color: #181613 !important;
-            box-shadow: 0 12px 24px rgba(24, 22, 19, 0.16);
+            background: var(--paper) !important;
+            color: var(--text) !important;
+            border-color: var(--line-strong) !important;
+            box-shadow: var(--shadow-soft);
         }
         div[data-testid="stButton"] button[kind="primary"] p,
         div[data-testid="stButton"] button[kind="primary"] span,
         div[data-testid="stButton"] button[kind="primary"] div {
-            color: #fff7f1 !important;
+            color: var(--text) !important;
         }
         div[data-testid="stButton"] button[kind="secondary"] p,
         div[data-testid="stButton"] button[kind="secondary"] span,
@@ -427,30 +516,72 @@ def apply_theme() -> None:
             color: var(--muted-soft);
             text-transform: uppercase;
             font-size: 0.73rem;
-            letter-spacing: 0.08em;
-            font-weight: 800;
+            letter-spacing: 0.06em;
+            font-weight: 700;
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         .stSelectbox [data-baseweb="select"] > div {
             min-height: 3.05rem;
-            border-radius: 16px;
+            border-radius: 0;
             border-color: var(--line-strong);
-            background: rgba(255,255,255,0.82);
+            background: var(--paper);
         }
         .stInfo {
-            border-radius: 18px;
+            border-radius: 0;
             border: 1px solid var(--line);
-            background: rgba(255,251,247,0.8);
+            background: var(--paper);
             color: var(--text);
+        }
+        div[data-testid="stMarkdownContainer"] p,
+        div[data-testid="stMarkdownContainer"] li,
+        div[data-testid="stMarkdownContainer"] span:not(.hero-chip):not(.pill),
+        div[data-testid="stMarkdownContainer"] label,
+        div[data-testid="stMarkdownContainer"] td,
+        div[data-testid="stMarkdownContainer"] th {
+            font-family: "Inter", "Segoe UI", sans-serif;
         }
         @media (max-width: 1100px) {
             .block-container {
                 padding-left: 1rem;
                 padding-right: 1rem;
             }
-            .shell-main {
-                padding-right: 0;
+            .home-grid,
+            .page-topbar {
+                grid-template-columns: 1fr;
+            }
+            .home-grid {
+                row-gap: 2rem;
+            }
+            .home-poster {
+                width: min(100%, 25rem);
+                height: auto;
+                justify-self: start;
+            }
+            .page-nav-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
             .note-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (max-width: 700px) {
+            .block-container {
+                padding-top: 2rem;
+            }
+            .home-title-card,
+            .page-title-card {
+                font-size: 2.15rem;
+            }
+            .home-nav-stack {
+                gap: 1rem;
+            }
+            .home-nav-stack div[data-testid="stButton"] {
+                margin-bottom: 0;
+            }
+            .home-nav-stack div[data-testid="stButton"] button {
+                min-height: 4.5rem;
+            }
+            .page-nav-row {
                 grid-template-columns: 1fr;
             }
         }
@@ -523,7 +654,7 @@ def apply_chart_style(figure: go.Figure, *, height: int, legend_y: float = 1.1) 
         template="simple_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"color": CHART_COLORS["ink_soft"], "family": "Manrope, sans-serif"},
+        font={"color": CHART_COLORS["ink_soft"], "family": "Inter, sans-serif"},
         margin={"l": 18, "r": 18, "t": 24, "b": 18},
         legend={
             "orientation": "h",
@@ -677,7 +808,7 @@ def build_source_mix_chart(topic: dict) -> go.Figure:
         template="simple_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"color": CHART_COLORS["ink_soft"], "family": "Manrope, sans-serif"},
+        font={"color": CHART_COLORS["ink_soft"], "family": "Inter, sans-serif"},
         margin={"l": 0, "r": 0, "t": 18, "b": 12},
         showlegend=True,
         legend={"orientation": "h", "y": -0.08, "x": 0.06, "title": None, "font": {"size": 11}},
@@ -752,19 +883,12 @@ def render_section_intro(title: str, copy: str) -> None:
     )
 
 
-def render_page_selector(current_page: str) -> str:
-    selected_page = current_page
-    st.markdown('<div class="rail-kicker">Navigate</div>', unsafe_allow_html=True)
-    st.markdown('<div class="rail-title">Analysis Views</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="rail-copy">Switch between the poster-like overview, topic breakdowns, detail view, and methods without losing context.</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
+def render_link_row(current_page: str) -> None:
+    links = []
     for page in PAGES:
-        if st.button(page, key=f"page_{page}", use_container_width=True, type="primary" if page == current_page else "secondary"):
-            selected_page = page
-    return selected_page
+        active_class = " is-active" if page == current_page else ""
+        links.append(f'<a class="figma-link{active_class}" href="{page_url(page)}" target="_self">{html.escape(page)}</a>')
+    st.markdown(f'<div class="page-nav-row">{"".join(links)}</div>', unsafe_allow_html=True)
 
 
 def render_cache_selector(available_caches: list, current_key: str) -> str:
@@ -789,55 +913,73 @@ def render_cache_selector(available_caches: list, current_key: str) -> str:
     return current
 
 
-def render_shell_header(snapshot: dict, available_caches: list, selected_cache_key: str) -> str:
+def render_page_header(snapshot: dict, available_caches: list, selected_cache_key: str, page: str) -> str:
     cache_label = snapshot["meta"].get("cache_label", "Default cache")
     window_label = snapshot["stats"]["window_label"]
     source = snapshot["meta"].get("cache_source", "unknown")
+    st.markdown(
+        f"""
+        <div class="page-topbar">
+            <div class="page-title-card">{html.escape(page)}</div>
+            <div class="page-nav-row">{''.join(
+                f'<a class="figma-link{" is-active" if nav_page == page else ""}" href="{page_url(nav_page)}" target="_self">{html.escape(nav_page)}</a>'
+                for nav_page in PAGES
+            )}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     selected_cache_key = render_cache_selector(available_caches, selected_cache_key)
-    image_path = get_hero_image_path()
-    hero_left, hero_right = st.columns([1.35, 0.8], gap="large")
-    with hero_left:
-        hero_image_markup = ""
-        if image_path is not None:
-            import base64
-
-            encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
-            hero_image_markup = (
-                f'<div class="hero-image-replace"><img alt="Yeah Buddy poster" '
-                f'src="data:image/{image_path.suffix.lstrip(".").lower()};base64,{encoded}"></div>'
-            )
-        st.markdown(
-            f"""
-            <div class="hero-shell">
-                <div class="hero-label">Fitness Research Dashboard</div>
-                {hero_image_markup}
-                <div class="hero-subtitle">
-                    A cleaner reading surface for the <strong>{html.escape(APP_TITLE)}</strong>:
-                    compare eras, scan topic prevalence, inspect stance cautiously, and keep the whole study on one calm visual system.
-                </div>
-                <div class="hero-meta-row">
-                    <span class="hero-chip">{html.escape(cache_label)}</span>
-                    <span class="hero-chip">{html.escape(window_label)}</span>
-                    <span class="hero-chip">Source: {html.escape(source)}</span>
-                </div>
+    st.markdown(
+        f"""
+        <div class="hero-shell">
+            <div class="hero-label">Fitness Research Dashboard</div>
+            <div class="hero-title">{html.escape(APP_TITLE)}</div>
+            <div class="hero-subtitle">
+                {html.escape(snapshot["meta"].get("cache_help_text", snapshot["stats"]["corpus_summary"]))}
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with hero_right:
-        if image_path is not None:
-            panel_card(
-                "Reading surface",
-                "The poster image now acts as the hero mark itself. This side panel stays lighter and is reserved for window context rather than repeating the same visual twice.",
-            )
-            panel_card("Selected window", f"{cache_label} • {window_label}")
-            panel_card("Data source", source)
-        else:
-            panel_card(
-                "Poster image unavailable",
-                "The local reference image could not be found, so the layout falls back to the text-led composition.",
-            )
+            <div class="hero-meta-row">
+                <span class="hero-chip">{html.escape(cache_label)}</span>
+                <span class="hero-chip">{html.escape(window_label)}</span>
+                <span class="hero-chip">Source: {html.escape(source)}</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     return selected_cache_key
+
+
+def render_home() -> None:
+    image_path = get_hero_image_path()
+    poster_html = ""
+    if image_path is not None:
+        poster_html = (
+            f'<img class="home-poster" alt="Yeah Buddy fitness poster" '
+            f'src="{get_image_data_uri(image_path)}">'
+        )
+    else:
+        poster_html = '<div class="home-poster"></div>'
+
+    st.markdown('<div class="home-title-card">Fitness</div>', unsafe_allow_html=True)
+    left, spacer, right = st.columns([613, 188, 400], gap="small")
+    with left:
+        st.markdown('<div class="home-nav-stack">', unsafe_allow_html=True)
+        for page, label in (
+            ("Overview", "Overview"),
+            ("Topics", "Topics"),
+            ("Topic Detail", "Topic Details"),
+            ("Methods", "Methods"),
+        ):
+            if st.button(label, key=f"home_{page}", use_container_width=True):
+                st.session_state.page = page
+                st.query_params["page"] = page
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+    with spacer:
+        st.empty()
+    with right:
+        st.markdown(poster_html, unsafe_allow_html=True)
 
 
 def render_overview(snapshot: dict) -> None:
@@ -1075,11 +1217,21 @@ def render_methods(snapshot: dict) -> None:
 
 def main() -> None:
     apply_theme()
+    requested_page = st.query_params.get("page")
+    if isinstance(requested_page, list):
+        requested_page = requested_page[0] if requested_page else None
+    if requested_page not in PAGES:
+        requested_page = None
+
     available_caches = list_available_caches()
     default_cache_key = resolve_cache_key()
 
     if "page" not in st.session_state:
-        st.session_state.page = PAGES[0]
+        st.session_state.page = requested_page or ""
+    elif requested_page is not None:
+        st.session_state.page = requested_page
+    else:
+        st.session_state.page = ""
     if "cache_key" not in st.session_state:
         st.session_state.cache_key = default_cache_key
 
@@ -1089,38 +1241,23 @@ def main() -> None:
 
     snapshot = load_dashboard_snapshot(st.session_state.cache_key)
 
-    shell_main, shell_rail = st.columns([4.9, 1.5], gap="large")
-    with shell_rail:
-        st.markdown('<div class="app-shell-rail">', unsafe_allow_html=True)
-        st.session_state.page = render_page_selector(st.session_state.page)
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-        st.markdown('<div class="rail-kicker">Current Window</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="rail-title">{html.escape(snapshot["meta"].get("cache_label", "Default cache"))}</div>', unsafe_allow_html=True)
-        st.markdown(
-            f'<div class="rail-copy">{html.escape(snapshot["meta"].get("cache_help_text", snapshot["stats"]["corpus_summary"]))}</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
-        st.markdown('<div class="rail-kicker">Study Summary</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="rail-copy">{html.escape(snapshot["stats"]["corpus_summary"])}</div>', unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    if not st.session_state.page:
+        render_home()
+        return
 
-    with shell_main:
-        st.markdown('<div class="shell-main">', unsafe_allow_html=True)
-        updated_cache_key = render_shell_header(snapshot, available_caches, st.session_state.cache_key)
-        if updated_cache_key != st.session_state.cache_key:
-            st.session_state.cache_key = updated_cache_key
-            snapshot = load_dashboard_snapshot(st.session_state.cache_key)
+    updated_cache_key = render_page_header(snapshot, available_caches, st.session_state.cache_key, st.session_state.page)
+    if updated_cache_key != st.session_state.cache_key:
+        st.session_state.cache_key = updated_cache_key
+        snapshot = load_dashboard_snapshot(st.session_state.cache_key)
 
-        if st.session_state.page == "Overview":
-            render_overview(snapshot)
-        elif st.session_state.page == "Topics":
-            render_topics(snapshot)
-        elif st.session_state.page == "Topic Detail":
-            render_topic_detail(snapshot)
-        else:
-            render_methods(snapshot)
-        st.markdown("</div>", unsafe_allow_html=True)
+    if st.session_state.page == "Overview":
+        render_overview(snapshot)
+    elif st.session_state.page == "Topics":
+        render_topics(snapshot)
+    elif st.session_state.page == "Topic Detail":
+        render_topic_detail(snapshot)
+    else:
+        render_methods(snapshot)
 
 
 if __name__ == "__main__":
