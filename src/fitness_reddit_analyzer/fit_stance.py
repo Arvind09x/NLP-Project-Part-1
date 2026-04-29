@@ -73,9 +73,10 @@ GENERIC_EXTRACTIVE_TERMS = {
 }
 TOPIC_INTERPRETATIONS = {
     0: "broad catch-all fitness discussion",
-    1: "strength programming and lifts",
-    2: "fat loss, calories, and body composition",
-    6: "protein and high-protein foods",
+    1: "weight loss, calories, protein, and body composition",
+    2: "gym experiences, etiquette, and recurring community rants",
+    5: "bench press, sets, reps, and strength-programming choices",
+    6: "physique posts, posting rules, and community feedback",
 }
 
 
@@ -252,6 +253,8 @@ def infer_validated_skip_reason(topic_id: int) -> str:
         return "validated exclusion: process/community-thread topic"
     if topic_id == 3:
         return "validated exclusion: anecdote/community-only topic"
+    if topic_id == 6:
+        return "validated exclusion: moderation/process-heavy physique-post topic"
     if topic_id == 7:
         return "validated exclusion: low-volume anecdote/community-only topic"
     return "validated exclusion: not stance-worthy"
@@ -317,18 +320,11 @@ def analyze_topic(topic: TopicSelection, comments: pd.DataFrame) -> dict:
         or centroid_similarity > STANCE_MAX_CENTROID_SIMILARITY
     )
 
-    if weak_split:
-        label_map = {
-            dominant_cluster: "common_discussion_pattern",
-            minority_cluster: "secondary_discussion_pattern",
-        }
-        outcome = "weak_split"
-    else:
-        label_map = {
-            dominant_cluster: "larger_cluster",
-            minority_cluster: "smaller_cluster",
-        }
-        outcome = "cluster_split"
+    label_map = {
+        dominant_cluster: "dominant_position",
+        minority_cluster: "opposing_or_caveat_position",
+    }
+    outcome = "weak_split" if weak_split else "stance_split"
 
     comments = comments.copy()
     comments["cluster_id"] = cluster_ids
@@ -467,6 +463,7 @@ def build_topic_summaries(
             total_comments=int(counts.sum()),
             minority_share=minority_share,
             distinctive_terms=distinctive_terms,
+            representative_snippets=build_representative_snippets(cluster_comments),
             outcome=outcome,
         )
         summaries.append(
@@ -535,31 +532,61 @@ def build_summary_text(
     total_comments: int,
     minority_share: float,
     distinctive_terms: list[str],
+    representative_snippets: list[str],
     outcome: str,
 ) -> str:
     share_text = f"{comment_count}/{total_comments} comments"
     term_text = ", ".join(distinctive_terms[:5]) if distinctive_terms else "no strongly distinctive phrases"
+    sample_text = " ".join(f"'{snippet}'" for snippet in representative_snippets[:2])
+    if not sample_text:
+        sample_text = "No concise representative snippet survived cleaning."
 
-    if outcome == "cluster_split":
-        if stance_label == "larger_cluster":
+    if stance_label == "dominant_position":
+        if outcome == "stance_split":
             return (
-                f"Larger cluster for topic {topic_id} ({interpretation}), covering {share_text}. "
-                f"Distinctive terms: {term_text}."
+                f"Dominant position for topic {topic_id} ({interpretation}), covering {share_text}. "
+                f"Key argument signals: {term_text}. Representative evidence: {sample_text}"
             )
         return (
-            f"Smaller cluster for topic {topic_id} ({interpretation}), covering {share_text}. "
-            f"Distinctive terms: {term_text}."
+            f"Dominant discussion position for topic {topic_id} ({interpretation}), covering {share_text}. "
+            f"The opposing/caveat side exists, but this split is weak or overlapping overall "
+            f"(smaller-side share {minority_share:.1%}). Key argument signals: {term_text}. "
+            f"Representative evidence: {sample_text}"
         )
 
-    if stance_label == "common_discussion_pattern":
+    if outcome == "stance_split":
         return (
-            f"Common discussion pattern for topic {topic_id} ({interpretation}), covering {share_text}. "
-            f"The split is weak or overlapping overall (smaller cluster share {minority_share:.1%}). Distinctive terms: {term_text}."
+            f"Opposing or caveat position for topic {topic_id} ({interpretation}), covering {share_text}. "
+            f"This side differs from the dominant cluster rather than merely repeating it. "
+            f"Key argument signals: {term_text}. Representative evidence: {sample_text}"
         )
     return (
-        f"Secondary discussion pattern for topic {topic_id} ({interpretation}), covering {share_text}. "
-        f"This looks more like an adjacent cluster than a clearly distinct stance split. Distinctive terms: {term_text}."
+        f"Opposing or caveat position for topic {topic_id} ({interpretation}), covering {share_text}. "
+        f"Because the split is weak or overlapping, treat this as a caveat/alternative argument rather than "
+        f"a clean opposition camp. Key argument signals: {term_text}. Representative evidence: {sample_text}"
     )
+
+
+def build_representative_snippets(cluster_comments: pd.DataFrame, limit: int = 2) -> list[str]:
+    snippets: list[str] = []
+    for text in cluster_comments["clean_text"].astype(str).tolist():
+        snippet = clean_summary_snippet(text)
+        if not snippet:
+            continue
+        snippets.append(snippet)
+        if len(snippets) >= limit:
+            break
+    return snippets
+
+
+def clean_summary_snippet(text: str, max_chars: int = 180) -> str:
+    collapsed = re.sub(r"\s+", " ", text).strip()
+    if not collapsed:
+        return ""
+    sentence_match = re.search(r"^(.{40,}?[.!?])(?:\s|$)", collapsed)
+    snippet = sentence_match.group(1) if sentence_match else collapsed
+    snippet = snippet[:max_chars].rsplit(" ", 1)[0].strip()
+    return snippet.strip("\"' ")
 
 
 def extract_topic_terms(text: str) -> set[str]:

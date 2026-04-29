@@ -1,4 +1,7 @@
 bertopic==0.16.4
+faiss-cpu==1.8.0.post1
+google-genai==1.73.1
+groq==1.2.0
 hdbscan==0.8.40
 numpy==1.26.4
 pandas==2.2.2

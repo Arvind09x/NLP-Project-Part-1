@@ -88,9 +88,9 @@ METHODS_NOTES = [
     "When comparing topic prevalence across eras, absence of a topic in one era may reflect under-sampling rather than genuine topical non-existence.",
 ]
 
-VALIDATED_STANCE_TOPIC_IDS = (1, 2, 6)
+VALIDATED_STANCE_TOPIC_IDS = (1, 2, 5)
 OPTIONAL_STANCE_TOPIC_IDS = (0,)
-EXCLUDED_STANCE_TOPIC_IDS = (3, 4, 5, 7)
+EXCLUDED_STANCE_TOPIC_IDS = (3, 4, 6, 7)
 
 
 def ensure_directories() -> None:

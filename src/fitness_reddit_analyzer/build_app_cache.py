@@ -357,9 +357,25 @@ def load_topic_trends(connection) -> dict[int, list[dict[str, Any]]]:
 def load_stance_summary_rows(connection) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
-        SELECT topic_id, stance_label, summary_text, representative_comment_ids_json
-        FROM topic_argument_summaries
-        ORDER BY topic_id, stance_label
+        SELECT
+            tas.topic_id,
+            tas.stance_label,
+            tas.summary_text,
+            tas.representative_comment_ids_json,
+            COUNT(cs.comment_id) AS comment_count,
+            COUNT(DISTINCT c.author_id) AS user_count
+        FROM topic_argument_summaries tas
+        LEFT JOIN comment_stances cs
+            ON cs.topic_id = tas.topic_id
+           AND cs.stance_label = tas.stance_label
+        LEFT JOIN comments c
+            ON c.comment_id = cs.comment_id
+        GROUP BY
+            tas.topic_id,
+            tas.stance_label,
+            tas.summary_text,
+            tas.representative_comment_ids_json
+        ORDER BY tas.topic_id, tas.stance_label
         """
     ).fetchall()
     return [dict(row) for row in rows]
@@ -486,6 +502,8 @@ def build_stance_lookup(
             {
                 "stance_label": str(row["stance_label"]),
                 "summary_text": str(row["summary_text"]),
+                "comment_count": int(row.get("comment_count") or 0),
+                "user_count": int(row.get("user_count") or 0),
                 "representative_comments": representative_comments,
             }
         )
@@ -501,20 +519,20 @@ def build_stance_lookup(
 
     stance_lookup: dict[int, dict[str, Any]] = {}
     for topic_id, outcome in outcomes.items():
-        mode = "neutral_patterns" if outcome["outcome"] == "weak_split" else "cluster_split"
+        mode = "cautious_stance_split" if outcome["outcome"] == "weak_split" else "stance_split"
         status_label = (
-            "Cautious pattern summaries"
-            if mode == "neutral_patterns"
-            else "Cluster-style summaries"
+            "Cautious support/opposition"
+            if mode == "cautious_stance_split"
+            else "Support/opposition split"
         )
         stance_lookup[topic_id] = {
             "available": True,
             "mode": mode,
             "status_label": status_label,
             "detail_note": (
-                "This topic was analyzed, but the split looked weak or overlapping, so the app presents neutral discussion-pattern summaries instead of claiming distinct stances."
-                if mode == "neutral_patterns"
-                else "This topic passed the validated stance gate and is shown with larger/smaller cluster summaries."
+                "This topic was analyzed into a dominant position and an opposing/caveat position, but the cluster boundary is weak or overlapping, so read the second side as caveats rather than a clean opposition bloc."
+                if mode == "cautious_stance_split"
+                else "This topic passed the validated stance gate and is shown as a dominant position versus an opposing/caveat position."
             ),
             "metrics": outcome,
             "summaries": summaries_by_topic.get(topic_id, []),
